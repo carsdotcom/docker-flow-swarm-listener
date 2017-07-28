@@ -1,0 +1,23 @@
+version: '3.1'
+services:
+  swarm-listener:
+    image: ${IMAGE}
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DF_NOTIF_CREATE_SERVICE_URL=http://proxy:8080/v1/docker-flow-proxy/reconfigure
+      - DF_NOTIF_REMOVE_SERVICE_URL=http://proxy:8080/v1/docker-flow-proxy/remove
+      - DF_CONFIG_API=${CONFIG_API}
+    secrets:
+    - bigip-key
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+secrets:
+  bigip-key:
+    external: true
+networks:
+  proxy:
+    external: true

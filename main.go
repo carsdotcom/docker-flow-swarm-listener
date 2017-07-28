@@ -1,15 +1,17 @@
 package main
 
 import (
-	"./service"
 	"time"
+
 	"./metrics"
+	"./service"
 )
 
 func main() {
 	logPrintf("Starting Docker Flow: Swarm Listener")
 	s := service.NewServiceFromEnv()
 	n := service.NewNotificationFromEnv()
+	bigIp := NewBigIpFromEnv()
 	serve := NewServe(s, n)
 	go serve.Run()
 
@@ -18,9 +20,13 @@ func main() {
 		logPrintf("Starting iterations")
 		for {
 			allServices, err := s.GetServices()
-			if err != nil { metrics.RecordError("GetServices") }
+			if err != nil {
+				metrics.RecordError("GetServices")
+			}
 			newServices, err := s.GetNewServices(allServices)
-			if err != nil { metrics.RecordError("GetNewServices") }
+			if err != nil {
+				metrics.RecordError("GetNewServices")
+			}
 			err = n.ServicesCreate(
 				newServices,
 				args.Retry,
@@ -29,11 +35,14 @@ func main() {
 			if err != nil {
 				metrics.RecordError("ServicesCreate")
 			}
+			bigIp.AddRoutes(newServices)
 			removedServices := s.GetRemovedServices(allServices)
 			err = n.ServicesRemove(removedServices, args.Retry, args.RetryInterval)
-			if err != nil { metrics.RecordError("ServicesRemove") }
+			if err != nil {
+				metrics.RecordError("ServicesRemove")
+			}
+			bigIp.RemoveRoutes(removedServices)
 			time.Sleep(time.Second * time.Duration(args.Interval))
 		}
 	}
 }
-
