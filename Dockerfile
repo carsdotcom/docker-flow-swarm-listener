@@ -1,6 +1,6 @@
 FROM golang:1.9-alpine3.6 AS build
 
-RUN apk add --update git
+RUN apk add --no-cache git
 ADD . /src
 WORKDIR /src
 RUN go get -d -v -t
@@ -9,7 +9,8 @@ RUN go build -v -o docker-flow-swarm-listener
 
 
 FROM alpine:3.6
-MAINTAINER 	Viktor Farcic <viktor@farcic.com>
+
+RUN apk add --no-cache curl drill
 
 ENV DF_DOCKER_HOST="unix:///var/run/docker.sock" \
     DF_NOTIFICATION_URL="" \

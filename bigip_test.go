@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	service "./service"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -228,5 +229,7 @@ func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string)
 	serv := swarm.Service{
 		Spec: spec,
 	}
-	return &[]swarm.Service{serv}
+	return &[]service.SwarmService{
+		Service: serv,
+	}
 }

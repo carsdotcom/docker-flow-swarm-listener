@@ -42,6 +42,7 @@ func main() {
 			if err != nil {
 				metrics.RecordError("ServicesRemove")
 			}
+			bigIp.RemoveRoutes(removedServices)
 			time.Sleep(time.Second * time.Duration(args.Interval))
 		}
 	}

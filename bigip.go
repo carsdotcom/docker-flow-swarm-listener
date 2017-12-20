@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/docker/docker/api/types/swarm"
+	"./service"
 )
 
 const (
@@ -45,15 +45,15 @@ type BigIp struct {
 }
 
 type BigIpClient interface {
-	AddRoutes(services *[]swarm.Service) error
+	AddRoutes(services *[]service.SwarmService) error
 	RemoveRoutes(services *[]string) error
 }
 
-func (b *BigIp) AddRoutes(services *[]swarm.Service) error {
+func (b *BigIp) AddRoutes(services *[]service.SwarmService) error {
 	errs := []error{}
 	for _, s := range *services {
 		//If servicepath label exists
-		if label, ok := s.Spec.Labels[SERVICE_PATH_LABEL]; ok {
+		if label, ok := s.Service.Spec.Labels[SERVICE_PATH_LABEL]; ok {
 			//There might be multiple paths for a service
 			label = strings.ToLower(label)
 			paths := strings.Split(label, ",")
@@ -64,7 +64,7 @@ func (b *BigIp) AddRoutes(services *[]swarm.Service) error {
 				errs = append(errs, err)
 			} else {
 				//Add service to cache
-				b.Services[s.Spec.Name] = paths
+				b.Services[s.Service.Spec.Name] = paths
 			}
 		}
 	}
