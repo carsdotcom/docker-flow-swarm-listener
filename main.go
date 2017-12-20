@@ -15,7 +15,7 @@ func main() {
 	serve := NewServe(s, n)
 	go serve.Run()
 
-	args := GetArgs()
+	args := getArgs()
 	if len(n.CreateServiceAddr) > 0 {
 		logPrintf("Starting iterations")
 		for {
@@ -38,10 +38,10 @@ func main() {
 			bigIp.AddRoutes(newServices)
 			removedServices := s.GetRemovedServices(allServices)
 			err = n.ServicesRemove(removedServices, args.Retry, args.RetryInterval)
+			metrics.RecordService(len(service.CachedServices))
 			if err != nil {
 				metrics.RecordError("ServicesRemove")
 			}
-			bigIp.RemoveRoutes(removedServices)
 			time.Sleep(time.Second * time.Duration(args.Interval))
 		}
 	}

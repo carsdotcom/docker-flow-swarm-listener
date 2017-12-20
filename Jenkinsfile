@@ -1,38 +1,55 @@
+import java.text.SimpleDateFormat
+
 pipeline {
   agent {
-    label "build"
+    label "test"
+  }
+  options {
+    buildDiscarder(logRotator(numToKeepStr: '2'))
+    disableConcurrentBuilds()
   }
   stages {
-    stage("build-proxy") {
+    stage("build") {
       steps {
-        sh 'docker run --rm -v $PWD:/usr/src/myapp -w /usr/src/myapp -v go:/go golang:1.6 bash -c "go get -d -v -t && CGO_ENABLED=0 GOOS=linux go build -v -o docker-flow-swarm-listener"'
-        sh 'docker build -t vfarcic/docker-flow-swarm-listener .'
-        sh 'docker tag vfarcic/docker-flow-swarm-listener vfarcic/docker-flow-swarm-listener:beta'
-        sh "docker login -u ${env.DOCKER_USERNAME} -p ${env.DOCKER_PASSWORD}"
-        sh 'docker push vfarcic/docker-flow-swarm-listener:beta'
-        sh "docker tag vfarcic/docker-flow-swarm-listener vfarcic/docker-flow-swarm-listener:beta.2.${env.BUILD_NUMBER}"
-        sh "docker push vfarcic/docker-flow-swarm-listener:beta.2.${env.BUILD_NUMBER}"
-        // sh 'docker push vfarcic/docker-flow-swarm-listener'
-        stash name: "stack", includes: "stack.yml"
+        script {
+          def dateFormat = new SimpleDateFormat("yy.MM.dd")
+          currentBuild.displayName = dateFormat.format(new Date()) + "-" + env.BUILD_NUMBER
+        }
+        dfBuild("docker-flow-swarm-listener")
+        sh "docker-compose run --rm tests"
       }
     }
-    stage("build-docs") {
+    stage("release") {
+      when {
+        branch "master"
+      }
       steps {
-        sh 'docker run -t -v $PWD:/docs cilerler/mkdocs bash -c "pip install pygments && pip install pymdown-extensions && mkdocs build"'
-        sh 'docker build -t vfarcic/docker-flow-swarm-listener-docs -f Dockerfile.docs .'
-        sh "docker tag vfarcic/docker-flow-swarm-listener-docs vfarcic/docker-flow-swarm-listener-docs:beta.2.${env.BUILD_NUMBER}"
-        sh "docker push vfarcic/docker-flow-swarm-listener-docs:beta.2.${env.BUILD_NUMBER}"
-        // sh 'docker push vfarcic/docker-flow-swarm-listener-docs'
+        dfRelease("docker-flow-swarm-listener")
+        dfReleaseGithub("docker-flow-swarm-listener")
       }
     }
     stage("deploy") {
+      when {
+        branch "master"
+      }
       agent {
         label "prod"
       }
       steps {
-        unstash "stack"
-        sh "TAG=beta.2.${env.BUILD_NUMBER} docker stack deploy -c stack.yml swarm-listener"
+        dfDeploy("docker-flow-swarm-listener", "swarm-listener_swarm-listener", "swarm-listener_docs")
+        dfDeploy("docker-flow-swarm-listener", "monitor_swarm-listener", "")
       }
+    }
+  }
+  post {
+    always {
+      sh "docker system prune -f"
+    }
+    failure {
+      slackSend(
+        color: "danger",
+        message: "${env.JOB_NAME} failed: ${env.RUN_DISPLAY_URL}"
+      )
     }
   }
 }
