@@ -1,8 +1,6 @@
 package main
 
 import (
-	"time"
-
 	"./metrics"
 	"./service"
 )
@@ -12,38 +10,75 @@ func main() {
 	s := service.NewServiceFromEnv()
 	n := service.NewNotificationFromEnv()
 	bigIp := NewBigIpFromEnv()
+	el := service.NewEventListenerFromEnv()
 	serve := NewServe(s, n)
 	go serve.Run()
 
 	args := getArgs()
-	if len(n.CreateServiceAddr) > 0 {
-		logPrintf("Starting iterations")
-		for {
-			allServices, err := s.GetServices()
-			if err != nil {
-				metrics.RecordError("GetServices")
+
+	if len(n.CreateServiceAddr) == 0 {
+		return
+	}
+
+	logPrintf("Sending notifications for running services")
+	allServices, err := s.GetServices()
+	if err != nil {
+		metrics.RecordError("GetServices")
+	}
+
+	newServices, err := s.GetNewServices(allServices)
+	if err != nil {
+		metrics.RecordError("GetNewServices")
+	}
+	err = n.ServicesCreate(
+		newServices,
+		args.Retry,
+		args.RetryInterval,
+	)
+	if err != nil {
+		metrics.RecordError("ServicesCreate")
+	}
+	bigIp.AddRoutes(newServices)
+
+	logPrintf("Start listening to docker service events")
+	events, errs := el.ListenForEvents()
+	for {
+		select {
+		case event := <-events:
+			if event.Action == "create" || event.Action == "update" {
+				eventServices, err := s.GetServicesFromID(event.ServiceID)
+				if err != nil {
+					metrics.RecordError("GetServicesFromID")
+				}
+				newServices, err := s.GetNewServices(eventServices)
+				if err != nil {
+					metrics.RecordError("GetNewServices")
+				}
+				err = n.ServicesCreate(
+					newServices,
+					args.Retry,
+					args.RetryInterval,
+				)
+				if err != nil {
+					metrics.RecordError("ServicesCreate")
+				}
+				bigIp.AddRoutes(newServices)
+			} else if event.Action == "remove" {
+				err = n.ServicesRemove(&[]string{event.ServiceID}, args.Retry, args.RetryInterval)
+				metrics.RecordService(len(service.CachedServices))
+				if err != nil {
+					metrics.RecordError("ServicesRemove")
+				}
+				removedServices, err := s.GetServicesFromID(event.ServiceID)
+				if err != nil {
+					metrics.RecordError("ServicesRemove")
+				}
+				bigIp.RemoveRoutes(removedServices)
 			}
-			newServices, err := s.GetNewServices(allServices)
-			if err != nil {
-				metrics.RecordError("GetNewServices")
-			}
-			err = n.ServicesCreate(
-				newServices,
-				args.Retry,
-				args.RetryInterval,
-			)
-			if err != nil {
-				metrics.RecordError("ServicesCreate")
-			}
-			bigIp.AddRoutes(newServices)
-			removedServices := s.GetRemovedServices(allServices)
-			err = n.ServicesRemove(removedServices, args.Retry, args.RetryInterval)
-			metrics.RecordService(len(service.CachedServices))
-			if err != nil {
-				metrics.RecordError("ServicesRemove")
-			}
-			bigIp.RemoveRoutes(removedServices)
-			time.Sleep(time.Second * time.Duration(args.Interval))
+		case <-errs:
+			metrics.RecordError("ListenForEvents")
+			// Restart listening for events
+			events, errs = el.ListenForEvents()
 		}
 	}
 }

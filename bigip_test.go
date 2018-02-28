@@ -95,7 +95,19 @@ func (s *BigIpTestSuite) Test_AddRemoveRoutes_ReturnErr_IfStatusNot200OK() {
 	err := bigIp.AddRoutes(s.getSwarmServices("test", labels))
 	s.Error(err)
 	bigIp.Services["test"] = []string{"/test"}
-	err = bigIp.RemoveRoutes(&[]string{"test"})
+
+	mockService1 := service.SwarmService{
+		Service: swarm.Service{
+			Spec: swarm.ServiceSpec{
+				Annotations: swarm.Annotations{
+					Name:   "test",
+					Labels: nil,
+				},
+			},
+		},
+	}
+
+	err = bigIp.RemoveRoutes(&[]service.SwarmService{mockService1})
 	s.Error(err)
 }
 
@@ -111,7 +123,18 @@ func (s *BigIpTestSuite) Test_Add_Remove_Routes() {
 	assert.True(s.T(), ok, "service should be added to cache")
 	assert.Equal(s.T(), value[0], PATH, "path should be added to cache")
 
-	err = bigIp.RemoveRoutes(&[]string{SERVICE_NAME})
+	mockService1 := service.SwarmService{
+		Service: swarm.Service{
+			Spec: swarm.ServiceSpec{
+				Annotations: swarm.Annotations{
+					Name:   SERVICE_NAME,
+					Labels: nil,
+				},
+			},
+		},
+	}
+
+	err = bigIp.RemoveRoutes(&[]service.SwarmService{mockService1})
 	assert.Nil(s.T(), err, "should not return err")
 	assert.True(s.T(), len(bigIp.Services) == 0, "cache size should be > 0")
 }
@@ -218,7 +241,7 @@ func goodServer(dg string, payload []byte) *httptest.Server {
 	}))
 }
 
-func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string) *[]swarm.Service {
+func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string) *[]service.SwarmService {
 	ann := swarm.Annotations{
 		Name:   name,
 		Labels: labels,
@@ -230,6 +253,8 @@ func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string)
 		Spec: spec,
 	}
 	return &[]service.SwarmService{
-		Service: serv,
+		service.SwarmService{
+			Service: serv,
+		},
 	}
 }

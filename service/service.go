@@ -26,7 +26,6 @@ type Service struct {
 type Servicer interface {
 	GetServices() (*[]SwarmService, error)
 	GetNewServices(services *[]SwarmService) (*[]SwarmService, error)
-	GetRemovedServices(services *[]SwarmService) *[]string
 	GetServicesParameters(services *[]SwarmService) *[]map[string]string
 }
 
@@ -56,7 +55,11 @@ func (m *Service) GetServices() (*[]SwarmService, error) {
 	}
 	swarmServices := []SwarmService{}
 	for _, s := range services {
-		swarmServices = append(swarmServices, SwarmService{s})
+		ss := SwarmService{s, nil}
+		if strings.EqualFold(os.Getenv("DF_INCLUDE_NODE_IP_INFO"), "true") {
+			ss.NodeInfo = m.getNodeInfo(ss)
+		}
+		swarmServices = append(swarmServices, ss)
 	}
 	return &swarmServices, nil
 }
@@ -68,7 +71,7 @@ func (m *Service) GetNewServices(services *[]SwarmService) (*[]SwarmService, err
 	for _, s := range *services {
 		if tmpUpdatedAt.Nanosecond() == 0 || s.Meta.UpdatedAt.After(tmpUpdatedAt) {
 			updated := false
-			if service, ok := CachedServices[s.Spec.Name]; ok {
+			if service, ok := CachedServices[s.ID]; ok {
 				if m.isUpdated(s, service) {
 					updated = true
 				}
@@ -77,7 +80,7 @@ func (m *Service) GetNewServices(services *[]SwarmService) (*[]SwarmService, err
 			}
 			if updated {
 				newServices = append(newServices, s)
-				CachedServices[s.Spec.Name] = s
+				CachedServices[s.ID] = s
 				if m.ServiceLastUpdatedAt.Before(s.Meta.UpdatedAt) {
 					m.ServiceLastUpdatedAt = s.Meta.UpdatedAt
 				}
@@ -87,22 +90,28 @@ func (m *Service) GetNewServices(services *[]SwarmService) (*[]SwarmService, err
 	return &newServices, nil
 }
 
-// GetRemovedServices returns services that were removed from the cluster
-func (m *Service) GetRemovedServices(services *[]SwarmService) *[]string {
-	tmpMap := make(map[string]SwarmService)
-	for k, v := range CachedServices {
-		tmpMap[k] = v
+// GetServicesFromID returns service associated with serviceID
+func (m *Service) GetServicesFromID(serviceID string) (*[]SwarmService, error) {
+	filter := filters.NewArgs()
+	filter.Add("label", fmt.Sprintf("%s=true", os.Getenv("DF_NOTIFY_LABEL")))
+	filter.Add("id", serviceID)
+	services, err := m.DockerClient.ServiceList(
+		context.Background(),
+		types.ServiceListOptions{Filters: filter},
+	)
+	if err != nil {
+		return &[]SwarmService{}, err
 	}
-	for _, v := range *services {
-		if _, ok := CachedServices[v.Spec.Name]; ok && !hasZeroReplicas(&v) {
-			delete(tmpMap, v.Spec.Name)
+
+	swarmServices := []SwarmService{}
+	for _, s := range services {
+		ss := SwarmService{s, nil}
+		if strings.EqualFold(os.Getenv("DF_INCLUDE_NODE_IP_INFO"), "true") {
+			ss.NodeInfo = m.getNodeInfo(ss)
 		}
+		swarmServices = append(swarmServices, ss)
 	}
-	rs := []string{}
-	for k := range tmpMap {
-		rs = append(rs, k)
-	}
-	return &rs
+	return &swarmServices, nil
 }
 
 // NewService returns a new instance of the `Service` structure
@@ -148,5 +157,62 @@ func (m *Service) isUpdated(candidate SwarmService, cached SwarmService) bool {
 			return true
 		}
 	}
+
+	if candidate.NodeInfo != nil && cached.NodeInfo != nil &&
+		!candidate.NodeInfo.Equal(*cached.NodeInfo) {
+		return true
+	}
+
 	return false
+}
+
+func (m *Service) getNodeInfo(s SwarmService) *NodeIPSet {
+
+	nodeInfo := NodeIPSet{}
+	filter := filters.NewArgs()
+	filter.Add("desired-state", "running")
+	filter.Add("service", s.Spec.Name)
+	taskList, err := m.DockerClient.TaskList(
+		context.Background(), types.TaskListOptions{Filters: filter})
+	if err != nil {
+		return nil
+	}
+
+	networkName, ok := s.Spec.Labels["com.df.scrapeNetwork"]
+	if !ok {
+		return nil
+	}
+
+	nodeCache := map[string]string{}
+	for _, task := range taskList {
+		if len(task.NetworksAttachments) == 0 || len(task.NetworksAttachments[0].Addresses) == 0 {
+			continue
+		}
+		var address string
+		for _, networkAttach := range task.NetworksAttachments {
+			if networkAttach.Network.Spec.Name == networkName && len(networkAttach.Addresses) > 0 {
+				address = strings.Split(networkAttach.Addresses[0], "/")[0]
+			}
+		}
+
+		if len(address) == 0 {
+			continue
+		}
+
+		if nodeName, ok := nodeCache[task.NodeID]; ok {
+			nodeInfo.Add(nodeName, address)
+		} else {
+			node, _, err := m.DockerClient.NodeInspectWithRaw(context.Background(), task.NodeID)
+			if err != nil {
+				continue
+			}
+			nodeInfo.Add(node.Description.Hostname, address)
+			nodeCache[task.NodeID] = node.Description.Hostname
+		}
+	}
+
+	if nodeInfo.Cardinality() == 0 {
+		return nil
+	}
+	return &nodeInfo
 }
