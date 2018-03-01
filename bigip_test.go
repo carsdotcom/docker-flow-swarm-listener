@@ -16,10 +16,13 @@ import (
 
 const (
 	SERVICE_NAME = "test-service"
+	SERVICE_ID   = "pxv7ygkc2r3w"
 	PATH         = "/test-path"
 	DG           = "test-dg"
 	PATTERN      = "test-pattern"
 )
+
+var serviceCount int
 
 type BigIpTestSuite struct {
 	suite.Suite
@@ -92,22 +95,11 @@ func (s *BigIpTestSuite) Test_AddRemoveRoutes_ReturnErr_IfStatusNot200OK() {
 	assert.NotNil(s.T(), bigIp, "should return bigIp")
 	labels := make(map[string]string)
 	labels["com.df.servicePath"] = "true"
-	err := bigIp.AddRoutes(s.getSwarmServices("test", labels))
+	err := bigIp.AddRoutes(s.getSwarmServices("123abc", labels))
 	s.Error(err)
-	bigIp.Services["test"] = []string{"/test"}
+	bigIp.Services["123abc"] = []string{"/test"}
 
-	mockService1 := service.SwarmService{
-		Service: swarm.Service{
-			Spec: swarm.ServiceSpec{
-				Annotations: swarm.Annotations{
-					Name:   "test",
-					Labels: nil,
-				},
-			},
-		},
-	}
-
-	err = bigIp.RemoveRoutes(&[]service.SwarmService{mockService1})
+	err = bigIp.RemoveRoutes(&[]string{"123abc"})
 	s.Error(err)
 }
 
@@ -116,25 +108,14 @@ func (s *BigIpTestSuite) Test_Add_Remove_Routes() {
 	assert.NotNil(s.T(), bigIp, "should return bigIp")
 	labels := make(map[string]string)
 	labels["com.df.servicePath"] = PATH
-	err := bigIp.AddRoutes(s.getSwarmServices(SERVICE_NAME, labels))
+	err := bigIp.AddRoutes(s.getSwarmServices(SERVICE_ID, labels))
 	assert.Nil(s.T(), err, "should not return err")
 	assert.True(s.T(), len(bigIp.Services) > 0, "cache size should be > 0")
-	value, ok := bigIp.Services[SERVICE_NAME]
+	value, ok := bigIp.Services[SERVICE_ID]
 	assert.True(s.T(), ok, "service should be added to cache")
 	assert.Equal(s.T(), value[0], PATH, "path should be added to cache")
 
-	mockService1 := service.SwarmService{
-		Service: swarm.Service{
-			Spec: swarm.ServiceSpec{
-				Annotations: swarm.Annotations{
-					Name:   SERVICE_NAME,
-					Labels: nil,
-				},
-			},
-		},
-	}
-
-	err = bigIp.RemoveRoutes(&[]service.SwarmService{mockService1})
+	err = bigIp.RemoveRoutes(&[]string{SERVICE_ID})
 	assert.Nil(s.T(), err, "should not return err")
 	assert.True(s.T(), len(bigIp.Services) == 0, "cache size should be > 0")
 }
@@ -144,7 +125,7 @@ func (s *BigIpTestSuite) Test_UpdateDataGroup_Marshall_Error() {
 	assert.NotNil(s.T(), bigIp, "should return bigIp")
 	labels := make(map[string]string)
 	labels["com.df.servicePath"] = PATH
-	err := bigIp.AddRoutes(s.getSwarmServices(SERVICE_NAME, labels))
+	err := bigIp.AddRoutes(s.getSwarmServices(SERVICE_ID, labels))
 	s.Error(err)
 }
 
@@ -241,7 +222,9 @@ func goodServer(dg string, payload []byte) *httptest.Server {
 	}))
 }
 
-func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string) *[]service.SwarmService {
+func (s *BigIpTestSuite) getSwarmServices(id string, labels map[string]string) *[]service.SwarmService {
+	name := fmt.Sprintf("%s%d", SERVICE_NAME, serviceCount)
+	serviceCount++
 	ann := swarm.Annotations{
 		Name:   name,
 		Labels: labels,
@@ -250,6 +233,7 @@ func (s *BigIpTestSuite) getSwarmServices(name string, labels map[string]string)
 		Annotations: ann,
 	}
 	serv := swarm.Service{
+		ID:   id,
 		Spec: spec,
 	}
 	return &[]service.SwarmService{

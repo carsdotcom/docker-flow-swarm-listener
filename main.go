@@ -69,11 +69,7 @@ func main() {
 				if err != nil {
 					metrics.RecordError("ServicesRemove")
 				}
-				removedServices, err := s.GetServicesFromID(event.ServiceID)
-				if err != nil {
-					metrics.RecordError("ServicesRemove")
-				}
-				bigIp.RemoveRoutes(removedServices)
+				bigIp.RemoveRoutes(&[]string{event.ServiceID})
 			}
 		case <-errs:
 			metrics.RecordError("ListenForEvents")

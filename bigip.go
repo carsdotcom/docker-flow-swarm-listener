@@ -64,7 +64,7 @@ func (b *BigIp) AddRoutes(services *[]service.SwarmService) error {
 				errs = append(errs, err)
 			} else {
 				//Add service to cache
-				b.Services[s.Service.Spec.Name] = paths
+				b.Services[s.Service.ID] = paths
 			}
 		}
 	}
@@ -75,10 +75,10 @@ func (b *BigIp) AddRoutes(services *[]service.SwarmService) error {
 }
 
 // From a list of SwarmService structs, removes the services from BigIP and cached
-func (b *BigIp) RemoveRoutes(services *[]service.SwarmService) error {
+func (b *BigIp) RemoveRoutes(services *[]string) error {
 	errs := []error{}
 	for _, s := range *services {
-		if paths, ok := b.Services[s.Spec.Name]; ok {
+		if paths, ok := b.Services[s]; ok {
 			log.Printf("Removing %v from %s", paths, b.Url)
 			err := b.updateDataGroup(paths, true)
 			if err != nil {
@@ -86,7 +86,7 @@ func (b *BigIp) RemoveRoutes(services *[]service.SwarmService) error {
 				errs = append(errs, err)
 			} else {
 				//Delete from cache
-				delete(b.Services, s.Spec.Name)
+				delete(b.Services, s)
 			}
 		}
 	}
